@@ -114,6 +114,9 @@ jobs:
   web:
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    # a re-run keeps the earlier attempts' artifacts, and deploy-pages rejects two with one name
+    outputs:
+      pages-artifact: github-pages-${{ github.run_attempt }}
     defaults:
       run:
         shell: bash
@@ -199,6 +202,7 @@ jobs:
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v5
         with:
+          name: github-pages-${{ github.run_attempt }}
           path: ${{ env.SITE_DIR }}
 
   deploy-pages:
@@ -219,3 +223,5 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v5
+        with:
+          artifact_name: ${{ needs.web.outputs.pages-artifact }}
