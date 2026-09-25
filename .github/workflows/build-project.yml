@@ -1,0 +1,221 @@
+name: Build Doriax Project
+
+on:
+  workflow_call:
+    inputs:
+      title:
+        description: Page title
+        type: string
+        required: true
+      subtitle:
+        description: Text under the title
+        type: string
+        default: ''
+      description:
+        description: Meta description, defaults to the subtitle
+        type: string
+        default: ''
+      controls:
+        description: Controls, one group per line with keys in [brackets]
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+env:
+  EXPORT_DIR: .ci-build/export
+  BUILD_DIR: .ci-build/build
+  PACKAGE_DIR: .ci-build/package
+  SITE_DIR: .ci-build/site
+
+jobs:
+  build:
+    name: ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # backend must match the GRAPHIC_BACKEND the exported CMake defaults to
+          - os: ubuntu-latest
+            platform: linux
+            backend: opengl
+          - os: windows-latest
+            platform: windows
+            backend: opengl
+          - os: macos-latest
+            platform: macos
+            backend: metal-macos
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libgl1-mesa-dev libglfw3-dev libxi-dev libxcursor-dev
+
+      - name: Download Doriax editor
+        id: editor
+        uses: doriaxengine/download-doriax-editor@v1
+        with:
+          platform: ${{ matrix.platform }}
+          github-token: ${{ github.token }}
+
+      - name: Export project
+        env:
+          EDITOR_PATH: ${{ steps.editor.outputs.editor-path }}
+        run: |
+          mkdir -p .ci-build
+          if [[ "$RUNNER_OS" == 'macOS' ]]; then
+            export DYLD_LIBRARY_PATH="$(dirname "$EDITOR_PATH")${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
+          fi
+          "$EDITOR_PATH" export \
+            --project . \
+            --out "$EXPORT_DIR" \
+            --backend "${{ matrix.backend }}"
+          echo "APP_NAME=$(sed -n 's/^ *set(APP_NAME \([^)]*\)).*/\1/p' "$EXPORT_DIR/CMakeLists.txt" | head -n 1)" >> "$GITHUB_ENV"
+
+      - name: Configure
+        run: |
+          cmake \
+            -S "$EXPORT_DIR" \
+            -B "$BUILD_DIR" \
+            -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: |
+          cmake --build "$BUILD_DIR" --config Release
+
+      - name: Install
+        run: |
+          cmake --install "$BUILD_DIR" --config Release --prefix "$PACKAGE_DIR"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ env.APP_NAME }}-${{ matrix.platform }}
+          path: ${{ env.PACKAGE_DIR }}/bin
+          if-no-files-found: error
+          retention-days: 14
+
+  web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+
+      - name: Setup emsdk
+        uses: emscripten-core/setup-emsdk@v16
+        with:
+          version: 5.0.6
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build libasound2-dev libgl1-mesa-dev libglfw3-dev libxi-dev libxcursor-dev libopengl0
+
+      - name: Download Doriax editor
+        id: editor
+        uses: doriaxengine/download-doriax-editor@v1
+        with:
+          platform: linux
+          github-token: ${{ github.token }}
+
+      - name: Export project
+        env:
+          EDITOR_PATH: ${{ steps.editor.outputs.editor-path }}
+        run: |
+          mkdir -p .ci-build
+          "$EDITOR_PATH" export \
+            --project . \
+            --out "$EXPORT_DIR" \
+            --backend opengles
+          echo "APP_NAME=$(sed -n 's/^ *set(APP_NAME \([^)]*\)).*/\1/p' "$EXPORT_DIR/CMakeLists.txt" | head -n 1)" >> "$GITHUB_ENV"
+
+      # same commit as this workflow
+      - name: Checkout page template
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .ci-build/template
+          persist-credentials: false
+
+      - name: Render page
+        env:
+          TITLE: ${{ inputs.title }}
+          SUBTITLE: ${{ inputs.subtitle }}
+          DESCRIPTION: ${{ inputs.description }}
+          CONTROLS: ${{ inputs.controls }}
+          SOURCE_URL: ${{ github.server_url }}/${{ github.repository }}
+        run: python .ci-build/template/web/render_shell.py project.yaml .ci-build/shell.html
+
+      - name: Configure
+        run: |
+          emcmake cmake \
+            -S "$EXPORT_DIR" \
+            -B "$BUILD_DIR" \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DEM_ADDITIONAL_LINK_FLAGS="--shell-file $GITHUB_WORKSPACE/.ci-build/shell.html"
+
+      - name: Build
+        run: |
+          cmake --build "$BUILD_DIR" --config Release
+
+      # not $APP_NAME.export.html, which gets retitled and can have its canvas stretched
+      - name: Prepare Pages artifact
+        run: |
+          mkdir -p "$SITE_DIR"
+          cp "$BUILD_DIR/$APP_NAME.html" "$SITE_DIR/index.html"
+          cp "$BUILD_DIR/$APP_NAME.js" "$BUILD_DIR/$APP_NAME.wasm" "$SITE_DIR/"
+          if [[ -f "$BUILD_DIR/$APP_NAME.data" ]]; then
+            cp "$BUILD_DIR/$APP_NAME.data" "$SITE_DIR/"
+          fi
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: ${{ env.SITE_DIR }}
+
+  deploy-pages:
+    needs: web
+    if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    concurrency:
+      group: github-pages
+      cancel-in-progress: true
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5
