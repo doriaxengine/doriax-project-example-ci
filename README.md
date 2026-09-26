@@ -49,6 +49,10 @@ deployed from the default branch only.
 `canvasHeight` from `project.yaml`, and the page links back to the calling
 repository. Project Settings > Web in the editor doesn't apply to this page.
 
+On narrow screens and touch devices, the bar below the game shows source-code and
+fullscreen icons with 44-pixel tap targets. Keyboard hints remain visible on desktop.
+The fullscreen action is shown only when the browser supports it.
+
 Preview a page locally:
 
 ```sh
