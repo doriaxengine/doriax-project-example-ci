@@ -37,6 +37,7 @@ class RenderShellTests(unittest.TestCase):
         self.assertIn('<meta name="description" content="Fly &amp; flap">', page)
         self.assertIn("<kbd>Space</kbd>", page)
         self.assertIn('width="1280" height="720"', page)
+        self.assertIn("gtag('config', 'G-D2G3S99SDC');", page)
 
     def test_description(self):
         page = render_shell.render(TEMPLATE, {**ENV, "SUBTITLE": "Short", "DESCRIPTION": "Long"}, "")
