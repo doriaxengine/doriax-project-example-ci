@@ -5,7 +5,12 @@ from web import render_shell
 
 
 TEMPLATE = (Path(__file__).parents[1] / "web" / "shell.html").read_text(encoding="utf-8")
-ENV = {"TITLE": "Tappy Plane", "SOURCE_URL": "https://github.com/doriaxengine/tappyplane"}
+ENV = {
+    "TITLE": "Tappy Plane",
+    "SOURCE_URL": "https://github.com/doriaxengine/tappyplane",
+    "DOWNLOAD_URL": "https://nightly.link/doriaxengine/tappyplane/workflows/build-artifacts.yml/main",
+    "APP_NAME": "TappyPlane",
+}
 
 
 class RenderShellTests(unittest.TestCase):
@@ -38,6 +43,13 @@ class RenderShellTests(unittest.TestCase):
         self.assertIn("<kbd>Space</kbd>", page)
         self.assertIn('width="1280" height="720"', page)
         self.assertIn("gtag('config', 'G-D2G3S99SDC');", page)
+
+    def test_downloads(self):
+        page = render_shell.render(TEMPLATE, ENV, "")
+        self.assertIn(">Download Tappy Plane</h2>", page)
+        for platform in ("windows", "linux", "macos"):
+            self.assertIn(f'href="{ENV["DOWNLOAD_URL"]}/TappyPlane-{platform}.zip"', page)
+        self.assertIn("<code>TappyPlane.exe</code>", page)
 
     def test_description(self):
         page = render_shell.render(TEMPLATE, {**ENV, "SUBTITLE": "Short", "DESCRIPTION": "Long"}, "")

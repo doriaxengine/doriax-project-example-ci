@@ -109,7 +109,8 @@ jobs:
           name: ${{ env.APP_NAME }}-${{ matrix.platform }}
           path: ${{ env.PACKAGE_DIR }}/bin
           if-no-files-found: error
-          retention-days: 14
+          # the page download links point at these, so keep them for the public maximum
+          retention-days: 90
 
   web:
     runs-on: ubuntu-latest
@@ -174,7 +175,13 @@ jobs:
           DESCRIPTION: ${{ inputs.description }}
           CONTROLS: ${{ inputs.controls }}
           SOURCE_URL: ${{ github.server_url }}/${{ github.repository }}
-        run: python .ci-build/template/web/render_shell.py project.yaml .ci-build/shell.html
+          # github.workflow_ref is the caller's workflow, which uploads the artifacts
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          workflow="${WORKFLOW_REF%@*}"
+          export DOWNLOAD_URL="https://nightly.link/$GITHUB_REPOSITORY/workflows/${workflow##*/}/$DEFAULT_BRANCH"
+          python .ci-build/template/web/render_shell.py project.yaml .ci-build/shell.html
 
       - name: Configure
         run: |

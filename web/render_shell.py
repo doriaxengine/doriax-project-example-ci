@@ -36,6 +36,8 @@ def render(template, env, project):
         "SUBTITLE": html.escape(subtitle),
         "DESCRIPTION": html.escape(env.get("DESCRIPTION") or subtitle),
         "SOURCE_URL": html.escape(env["SOURCE_URL"]),
+        "DOWNLOAD_URL": html.escape(env["DOWNLOAD_URL"]),
+        "APP_NAME": html.escape(env["APP_NAME"]),
         "CONTROLS": render_controls(env.get("CONTROLS", "")),
         "WIDTH": width,
         "HEIGHT": height,
